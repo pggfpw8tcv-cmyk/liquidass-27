@@ -336,6 +336,22 @@ typedef void (*Render14Fn)(void*,
                            void*,
                            void*,
                            float*);
+// iOS 18+: CA::OGL::GaussianBlurFilter::render takes a second CA::Shape const*
+// (see backboardd crash log: render(Filter,Layer,Context&,float,Surface*,float,bool,
+//  ColorMatrix const*,Shape const*,Shape const*,float*)). Forwarding with the old
+// 11-argument signature makes the callee read a garbage 'float *out' from the stack.
+typedef void (*Render18Fn)(void*,
+                           void*,
+                           void*,
+                           void*,
+                           float,
+                           void*,
+                           float,
+                           bool,
+                           void*,
+                           void*,
+                           void*,
+                           float*);
 typedef void     (*StopEncodersFn)(void*);
 typedef uint32_t (*InternAtomFn)(const char*);
 typedef void     (*AddFilterFn)(uint32_t, void*);
@@ -348,6 +364,9 @@ static InternAtomFn    g_internAtom     = nullptr;
 static AddFilterFn     g_addFilter      = nullptr;
 static Render13Fn      g_origGaussR13   = nullptr; // original render we call after our pass
 static Render14Fn      g_origGaussR14   = nullptr;
+static Render18Fn      g_origGaussR18   = nullptr;
+static bool            g_render18ABI    = false; // iOS >= 18: extra Shape param
+static void           *g_hookShape2     = nullptr; // 2nd Shape from the hook entry
 static IdentityFn      g_origGaussIdentity = nullptr;
 static EdgeInfoFn      g_origGaussEdgeInfo = nullptr;
 static void           *g_gaussCtxValue  = nullptr; // raw gaussian vtable ptr (stripped)
@@ -1608,6 +1627,9 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
     if (g_inLegacyRender && g_origGaussR14) {
         g_origGaussR14(self, filter, layer, ctx, opacity, surface,
                        0.0f, g_legacyRenderOffset, cm, shape, out);
+    } else if (g_render18ABI && g_origGaussR18) {
+        g_origGaussR18(self, filter, layer, ctx, opacity, surface,
+                       0.0f, flag, cm, shape, g_hookShape2, out);
     } else if (g_origGaussR13) {
         g_origGaussR13(self, filter, layer, ctx, opacity, surface,
                        0.0f, flag, cm, shape, out);
@@ -1782,6 +1804,30 @@ static void ourGaussianRenderHook(void *self, void *filter, void *layer, void *c
     }
 }
 
+static void ourGaussianRender18Hook(void *self, void *filter, void *layer, void *ctx,
+                                    float opacity, void *surface, float scale,
+                                    bool flag, void *cm, void *shape, void *shape2,
+                                    float *out) {
+    uint32_t atom = filter
+        ? *(uint32_t *)((uint8_t *)filter + g_filterAtomOffset) : 0;
+    if (lgIsCustomAtom(atom)) {
+        static int loggedCustomDispatch = 0;
+        if (__sync_bool_compare_and_swap(&loggedCustomDispatch, 0, 1)) {
+            lglog("hook: first iOS 18 custom render atom=0x%x self=%p filter=%p",
+                  atom, self, filter);
+        }
+        g_hookShape2 = shape2;
+        ourCustomRender13(self, filter, layer, ctx, opacity, surface,
+                          scale, flag, cm, shape, out);
+        g_hookShape2 = nullptr;
+        return;
+    }
+    if (g_origGaussR18) {
+        g_origGaussR18(self, filter, layer, ctx, opacity, surface,
+                       scale, flag, cm, shape, shape2, out);
+    }
+}
+
 static void ourGaussianRender14Hook(void *self, void *filter, void *layer, void *ctx,
                                     float opacity, void *surface, float scale,
                                     simd_float2 offset, void *cm, void *shape,
@@ -1938,6 +1984,8 @@ static bool lgInstallGaussianHooks(void *identityEntry, void *edgeInfoEntry,
     if (g_skipGaussianRenderHook) {
         if (g_legacyRenderABI)
             g_origGaussR14 = (Render14Fn)LGSymMakeCallable(renderEntry);
+        else if (g_render18ABI)
+            g_origGaussR18 = (Render18Fn)LGSymMakeCallable(renderEntry);
         else
             g_origGaussR13 = (Render13Fn)LGSymMakeCallable(renderEntry);
         lglog("hook: skipping Gaussian render hook after capability probe");
@@ -1947,29 +1995,36 @@ static bool lgInstallGaussianHooks(void *identityEntry, void *edgeInfoEntry,
         g_skipGaussianRenderHook = true;
         if (g_legacyRenderABI)
             g_origGaussR14 = (Render14Fn)LGSymMakeCallable(renderEntry);
+        else if (g_render18ABI)
+            g_origGaussR18 = (Render18Fn)LGSymMakeCallable(renderEntry);
         else
             g_origGaussR13 = (Render13Fn)LGSymMakeCallable(renderEntry);
         lglog("hook: render probe state unavailable; skipping hook");
     } else {
         void *replacement = LGSymStripCode(g_legacyRenderABI
             ? (void *)&ourGaussianRender14Hook
-            : (void *)&ourGaussianRenderHook);
+            : (g_render18ABI ? (void *)&ourGaussianRender18Hook
+                             : (void *)&ourGaussianRenderHook));
         lglog("hook: installing Gaussian render target=%p replacement=%p",
               target, replacement);
         g_hookFunction(target, replacement, &trampoline);
         lgRemoveGaussianIdentityState();
         if (g_legacyRenderABI)
             g_origGaussR14 = (Render14Fn)LGSymMakeCallable(trampoline);
+        else if (g_render18ABI)
+            g_origGaussR18 = (Render18Fn)LGSymMakeCallable(trampoline);
         else
             g_origGaussR13 = (Render13Fn)LGSymMakeCallable(trampoline);
     }
     lglog("hook: Gaussian trampolines identity=%p edge=%p renderRaw=%p render=%p ABI=%s",
           (void *)g_origGaussIdentity, (void *)g_origGaussEdgeInfo,
           trampoline,
-          g_legacyRenderABI ? (void *)g_origGaussR14 : (void *)g_origGaussR13,
-          g_legacyRenderABI ? "Vec2" : "bool");
+          g_legacyRenderABI ? (void *)g_origGaussR14
+              : (g_render18ABI ? (void *)g_origGaussR18 : (void *)g_origGaussR13),
+          g_legacyRenderABI ? "Vec2" : (g_render18ABI ? "bool+Shape2" : "bool"));
     return g_legacyRenderABI ? g_origGaussR14 != nullptr
-                             : g_origGaussR13 != nullptr;
+         : (g_render18ABI    ? g_origGaussR18 != nullptr
+                             : g_origGaussR13 != nullptr);
 }
 
 static void lgRegisterCustomAtom(uint32_t atom, void *descriptor) {
@@ -2313,6 +2368,7 @@ static void tweakInit(void) {
     g_skipGaussianRenderHook = false;
     g_osMajorVersion = osv.majorVersion;
     g_legacyRenderABI = osv.majorVersion <= 14;
+    g_render18ABI = osv.majorVersion >= 18;
     lglog("===== LiquidGlass (backboardd) on iOS %ld.%ld.%ld =====",
           (long)osv.majorVersion, (long)osv.minorVersion, (long)osv.patchVersion);
 
