@@ -757,7 +757,10 @@ static void LGSegmentApplyRendered(LGSegmentMotionState *state);
     _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
     [_displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
-- (void)stop { [_displayLink invalidate]; _displayLink = nil; }
+- (void)stop {
+    [_displayLink invalidate];
+    _displayLink = nil;
+}
 - (void)tick:(CADisplayLink *)link {
     CFTimeInterval now = CACurrentMediaTime();
     CGFloat dt = (CGFloat)MAX(now - _lastFrameTime, 1.0 / 120.0);
