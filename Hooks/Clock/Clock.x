@@ -550,7 +550,16 @@ static void LGClockRegisterObstacle(UIView *view) {
     %init(LGClock26Hooks);
     sLGClockDiagTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(sLGClockDiagTimer, DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC, 100 * NSEC_PER_MSEC);
-    dispatch_source_set_event_handler(sLGClockDiagTimer, ^{ LGClockDiagDump(); });
+    dispatch_source_set_event_handler(sLGClockDiagTimer, ^{
+        LGClockDiagDump();
+        // EXPERIMENT: keep the backdrop render alive (CA stops calling the filter once the clock is at rest)
+        static int sTick = 0;
+        if ((++sTick % 2) != 0 || !LG_prefBool(@"Clock.KeepAlive", YES)) return;
+        for (UIView *host in sLGClockHosts.allObjects) {
+            SpatialLiquidClockView *clock = objc_getAssociatedObject(host, kLGClockViewKey);
+            if (clock.window && !clock.hidden && clock.alpha > 0.01) [clock notifySettled];
+        }
+    });
     dispatch_resume(sLGClockDiagTimer);
     lgObservePreferenceReload(^{
         for (UIView *host in sLGClockHosts.allObjects) LGClockUpdateHost(host);
