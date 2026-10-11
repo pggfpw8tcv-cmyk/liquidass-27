@@ -302,13 +302,25 @@ static void LGClockRegisterObstacle(UIView *view) {
 %group LGClock26Hooks
 
 %hook CSProminentTimeView
-- (void)didMoveToWindow { %orig; LGClockUpdateHost((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockUpdateHost((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockUpdateHost((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockUpdateHost((UIView *)self);
+}
 %end
 
 %hook SBFLockScreenDateView
-- (void)didMoveToWindow { %orig; LGClockUpdateHost((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockUpdateHost((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockUpdateHost((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockUpdateHost((UIView *)self);
+}
 %end
 
 %hook UILabel
@@ -325,38 +337,80 @@ static void LGClockRegisterObstacle(UIView *view) {
 %end
 
 %hook PLPlatterView
-- (void)didMoveToWindow { %orig; LGClockRegisterObstacle((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockRegisterObstacle((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
 %end
 
 %hook NCNotificationShortLookView
-- (void)didMoveToWindow { %orig; LGClockRegisterObstacle((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockRegisterObstacle((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
 %end
 
 %hook NCNotificationLongLookView
-- (void)didMoveToWindow { %orig; LGClockRegisterObstacle((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockRegisterObstacle((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
 %end
 
 %hook NCNotificationListSectionRevealHintView
-- (void)didMoveToWindow { %orig; LGClockRegisterObstacle((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockRegisterObstacle((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
 %end
 
 %hook NCNotificationListCell
-- (void)didMoveToWindow { %orig; LGClockRegisterObstacle((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockRegisterObstacle((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
 %end
 
 %hook NCNotificationListHeaderTitleView
-- (void)didMoveToWindow { %orig; LGClockRegisterObstacle((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockRegisterObstacle((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
 %end
 
 %hook MRUArtworkView
-- (void)didMoveToWindow { %orig; LGClockRegisterObstacle((UIView *)self); }
-- (void)layoutSubviews { %orig; LGClockRegisterObstacle((UIView *)self); }
+- (void)didMoveToWindow {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    LGClockRegisterObstacle((UIView *)self);
+}
 %end
 
 %hook CSProminentSubtitleDateView
