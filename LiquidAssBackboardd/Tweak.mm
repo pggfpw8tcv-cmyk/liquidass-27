@@ -1956,8 +1956,10 @@ static bool lgInstallGaussianHooks(void *identityEntry, void *edgeInfoEntry,
     }
 
     void *edgeTrampoline = nullptr;
-    void *edgeTarget = LGSymStripCode(edgeInfoEntry);
-    if (g_skipGaussianEdgeHook) {
+    void *edgeTarget = edgeInfoEntry ? LGSymStripCode(edgeInfoEntry) : nullptr;
+    if (!edgeInfoEntry) {
+        lglog("hook: no edge-info entry, skipping edge-info hook");
+    } else if (g_skipGaussianEdgeHook) {
         g_origGaussEdgeInfo = (EdgeInfoFn)LGSymMakeCallable(edgeInfoEntry);
         lglog("hook: skipping Gaussian edge-info hook after capability probe");
     } else if (!lgWriteGaussianIdentityState(
@@ -1974,7 +1976,7 @@ static bool lgInstallGaussianHooks(void *identityEntry, void *edgeInfoEntry,
         lgRemoveGaussianIdentityState();
         g_origGaussEdgeInfo = (EdgeInfoFn)LGSymMakeCallable(edgeTrampoline);
     }
-    if (!g_origGaussEdgeInfo) {
+    if (edgeInfoEntry && !g_origGaussEdgeInfo) {
         lglog("hook: Gaussian edge-info trampoline unavailable");
         return false;
     }
@@ -2158,10 +2160,30 @@ static bool registerCustomFilter(void) {
     }
     lglog("registerCustomFilter: gaussian vtable @ %p", gaussVtable);
 
+    // diagnostic dump: first instruction words of every vtable slot (helps adapt resolvers to new iOS builds)
+    if (gLGBackboardDebugLogging) {
+        for (size_t i = 0; i < kVtableSlots; i++) {
+            uint32_t *fn = (uint32_t *)LGSymStripCode(gaussVtable[i]);
+            if (!fn || !LGSymAddressInQuartzCoreImage((void *)fn)) {
+                lglog("vtable[%zu] = %p (not in QuartzCore)", i, (void *)fn);
+                continue;
+            }
+            char buf[24 * 9 + 1];
+            size_t n = 0;
+            for (int k = 0; k < 24; k++)
+                n += snprintf(buf + n, sizeof(buf) - n, "%08x ", fn[k]);
+            lglog("vtable[%zu] = %p : %s", i, (void *)fn, buf);
+        }
+    }
+
     int edgeInfoSlot =
         LGResolve_EdgeInfoVtableSlot((void * const *)gaussVtable,
                                      (int)kVtableSlots);
-    if (edgeInfoSlot < 0 || edgeInfoSlot >= (int)kVtableSlots) {
+    if (edgeInfoSlot < 0 && g_useHookPath) {
+        // the hook path only forwards edge-info unchanged, so it is optional there
+        lglog("registerCustomFilter: edge-info slot unresolved, continuing without edge-info hook");
+        edgeInfoSlot = -1;
+    } else if (edgeInfoSlot < 0 || edgeInfoSlot >= (int)kVtableSlots) {
         lglog("registerCustomFilter: could not resolve edge-info vtable slot (got %d), aborting",
               edgeInfoSlot);
         return false;
@@ -2191,7 +2213,7 @@ static bool registerCustomFilter(void) {
 
     if (g_useHookPath && !g_gaussianHooksInstalled) {
         if (!lgInstallGaussianHooks(gaussVtable[0],
-                                    gaussVtable[edgeInfoSlot],
+                                    edgeInfoSlot >= 0 ? gaussVtable[edgeInfoSlot] : nullptr,
                                     gaussVtable[renderSlot])) {
             lglog("registerCustomFilter: Gaussian hooks install failed");
             return false;
