@@ -708,6 +708,14 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         signedDistance = -distPx;
         edgeOpacity = maskSample.a;
     } else if (u.useGlyphMask > 0.5) {
+        if (clockOri != 0) {
+            // DEBUG: red = glyph with orientation-3 mapping, blue = glyph with orientation-4 mapping
+            float rHit = glyphMask.sample(s, clockRotateUV(localUV, 3)).r;
+            float bHit = glyphMask.sample(s, clockRotateUV(localUV, 4)).r;
+            if (rHit > 0.5 || bHit > 0.5) {
+                return float4(rHit > 0.5 ? 1.0 : 0.0, 0.0, bHit > 0.5 ? 1.0 : 0.0, 1.0);
+            }
+        }
         float centerAlpha = glyphMask.sample(s, clockRotateUV(localUV, clockOri)).r;
         if (centerAlpha < 0.005) {
             return src.sample(s, captureUV);
@@ -1598,7 +1606,7 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
             lu.bezelWidth = fmaxf(1.0f, g_clockMaskBezelWidthPoints * pixelsPerPoint);
             static int s_clockLogCount = 0;
             if (s_clockLogCount++ < 15) {
-                lglog("CLOCK RENDER [clock-rot-v1]: w=%llu h=%llu maskW=%zu maskH=%zu ver=%u bezel=%.1f rotated=%d glyphMode=%.2f",
+                lglog("CLOCK RENDER [clock-rot-DEBUG]: w=%llu h=%llu maskW=%zu maskH=%zu ver=%u bezel=%.1f rotated=%d glyphMode=%.2f",
                       w, h, clockMask.width, clockMask.height, g_clockMaskVersion, lu.bezelWidth,
                       (int)clockRotated, lu.useGlyphMask);
             }
