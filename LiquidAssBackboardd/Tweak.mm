@@ -616,14 +616,6 @@ float2 backdropSampleUV(float2 capturePx,
     return clamp(sampleUV, 0.0, 1.0);
 }
 
-// landscape iPad: the backdrop texture is rotated 90 degrees against the clock mask
-float2 clockRotateUV(float2 uv, int ori)
-{
-    if (ori == 3) return float2(uv.y, 1.0 - uv.x);
-    if (ori == 4) return float2(1.0 - uv.y, uv.x);
-    return uv;
-}
-
 float4 liquidGlassPixel(texture2d<float, access::sample> src,
                         texture2d<float, access::sample> glyphMask,
                         constant Uniforms &u, uint2 gid, uint2 dimensions)
@@ -635,11 +627,6 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
     float2 localUV = (float2(gid) + 0.5) / float2(W, H);
     bool isCoverSheet = u.useGlyphMask < -0.5;
     bool isKeyboard = u.useGlyphMask > 0.0 && u.useGlyphMask < 0.5;
-    int clockOri = 0;
-    if (u.useGlyphMask > 0.5) {
-        float clockFrac = u.useGlyphMask - floor(u.useGlyphMask);
-        clockOri = clockFrac > 0.35 ? 4 : (clockFrac > 0.25 ? 3 : 0);
-    }
     float2 captureUV = localUV;
     float2 capturePx = localUV * u.resolution;
     float2 px = capturePx;
@@ -671,24 +658,11 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
     bool subShape = false;
     float cornerBlend = 0.0;
     if (u.useGlyphMask > 2.5) {
-        float2 gidF = float2(float(gid.x) + 0.5f, float(gid.y) + 0.5f);
-        float2 ip = gidF;
-        float ifW = float(W);
-        float ifH = float(H);
-        if (clockOri == 3) {
-            ip = float2(gidF.y, float(W) - gidF.x);
-            ifW = float(H);
-            ifH = float(W);
-        } else if (clockOri == 4) {
-            ip = float2(float(H) - gidF.y, gidF.x);
-            ifW = float(H);
-            ifH = float(W);
-        }
         float maskAspect = float(glyphMask.get_height()) / max(float(glyphMask.get_width()), 1.0f);
-        float fullH = ifW * maskAspect;
-        float topOffset = max(0.0f, fullH - ifH);
-        float2 clockUV = float2(ip.x / ifW,
-                                (ip.y + topOffset) / max(fullH, 1.0f));
+        float fullH = float(W) * maskAspect;
+        float topOffset = max(0.0f, fullH - float(H));
+        float2 clockUV = float2((float(gid.x) + 0.5f) / float(W),
+                                (float(gid.y) + 0.5f + topOffset) / max(fullH, 1.0f));
         if (clockUV.y < 0.0f || clockUV.y > 1.0f) {
             return src.sample(s, captureUV);
         }
@@ -701,14 +675,13 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         dir = (nlen > 0.01) ? normal / nlen : float2(0.0, -1.0);
 
         float maskW = float(glyphMask.get_width());
-        float clockLayerW = clockOri != 0 ? u.resolution.y : u.resolution.x;
-        float scaleX = maskW > 0.0 ? clockLayerW / maskW : 1.0;
+        float scaleX = maskW > 0.0 ? u.resolution.x / maskW : 1.0;
         float distPx = (maskSample.b * 255.0) * scaleX;
         distFromSide = distPx;
         signedDistance = -distPx;
         edgeOpacity = maskSample.a;
     } else if (u.useGlyphMask > 0.5) {
-        float centerAlpha = glyphMask.sample(s, clockRotateUV(localUV, clockOri)).r;
+        float centerAlpha = glyphMask.sample(s, localUV).r;
         if (centerAlpha < 0.005) {
             return src.sample(s, captureUV);
         }
@@ -724,7 +697,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
             float probe = 1.0;
             for (int level = 0; level < 6; level++) {
                 probe = min(probe, bezel);
-                float2 probeUV = clockRotateUV(localUV + candidateDirection * (probe / u.resolution), clockOri);
+                float2 probeUV = localUV + candidateDirection * (probe / u.resolution);
                 if (glyphMask.sample(s, probeUV).r < 0.15) {
                     high = probe;
                     break;
@@ -735,7 +708,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
             if (high <= bezel) {
                 for (int refinement = 0; refinement < 3; refinement++) {
                     float middle = (low + high) * 0.5;
-                    float2 probeUV = clockRotateUV(localUV + candidateDirection * (middle / u.resolution), clockOri);
+                    float2 probeUV = localUV + candidateDirection * (middle / u.resolution);
                     if (glyphMask.sample(s, probeUV).r < 0.15) high = middle;
                     else low = middle;
                 }
@@ -890,10 +863,6 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
 
         textureDir = float2(dir.y, -dir.x);
     }
-    if (u.useGlyphMask > 2.5) {
-        if (clockOri == 3) textureDir = float2(-dir.y, dir.x);
-        else if (clockOri == 4) textureDir = float2(dir.y, -dir.x);
-    }
     float2 dispPx = -textureDir * normDisp * bezel
                   * u.refractionScale * edgeOpacity;
 
@@ -971,12 +940,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
                                                     -1.57079632679) * edgeOpacity;
         outRGB += float3(clockHighlight * 1.15);
     } else {
-        float2 hlDir = dir;
-        if (u.useGlyphMask > 0.5 && u.useGlyphMask < 2.5) {
-            if (clockOri == 3) hlDir = float2(dir.y, -dir.x);
-            else if (clockOri == 4) hlDir = float2(-dir.y, dir.x);
-        }
-        float highlight = quartzGlassHighlight(distFromSide, bezel, hlDir,
+        float highlight = quartzGlassHighlight(distFromSide, bezel, dir,
                                                u.fresnelGlareStrength,
                                                -1.57079632679) *
                           edgeOpacity;
@@ -1580,21 +1544,9 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
     if (!strcmp(hp->prefPrefix, "Clock")) {
         clockMask = lgClockMaskTexture(device);
         lu.useGlyphMask = clockMask ? ((g_clockMaskVersion >= 3) ? 3.0f : 1.0f) : 0.f;
-        bool clockRotated = clockMask && h > w && clockMask.width > clockMask.height;
-        if (clockRotated) {
-            // landscape iPad: backdrop texture is rotated against the mask; remember last landscape side
-            static uint32_t sLastClockLandscape = 3;
-            LGCoverSheetSharedState clockState = {};
-            if (LGCoverSheetReadSharedState(&clockState) && clockState.active &&
-                (clockState.deviceOrientation == 3u || clockState.deviceOrientation == 4u)) {
-                sLastClockLandscape = clockState.deviceOrientation;
-            }
-            lu.useGlyphMask += (sLastClockLandscape == 4u) ? 0.4f : 0.3f;
-        }
         if (clockMask) {
             float maskPointWidth = (float)clockMask.width / g_clockMaskImageScale;
-            float clockLayerWidthPx = clockRotated ? (float)h : (float)w;
-            float pixelsPerPoint = maskPointWidth > 0.0f ? clockLayerWidthPx / maskPointWidth : 1.0f;
+            float pixelsPerPoint = maskPointWidth > 0.0f ? (float)w / maskPointWidth : 1.0f;
             lu.bezelWidth = fmaxf(1.0f, g_clockMaskBezelWidthPoints * pixelsPerPoint);
             static int s_clockLogCount = 0;
             if (s_clockLogCount++ < 15) {
