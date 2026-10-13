@@ -119,10 +119,21 @@ static BOOL ccIsSliderFillMaterial(UIView *mat) {
     return NO;
 }
 
-static CGFloat ccGlassRadiusForMaterial(UIView *mat) {
+// iPadOS 18: the module hierarchy may not contain CCUIContentModuleContainerView, so also accept
+// any CCUIContentModule* ancestor or a CCUIButtonModuleView.
+static BOOL ccInModule(UIView *mat) {
+    if (hasAncestorOfClassName(mat, @"CCUIContentModuleContainerView")) return YES;
+    for (UIView *a = mat.superview; a; a = a.superview) {
+        NSString *n = NSStringFromClass(a.class);
+        if ([n hasPrefix:@"CCUIContentModule"] || [n isEqualToString:@"CCUIButtonModuleView"]) return YES;
+    }
+    return NO;
+}
+
+static CGFloat ccGlassRadiusForMaterialImpl(UIView *mat) {
     if (ccHasSBElasticHierarchy(mat)) return -1.0;
     if (!isExactClass(mat, @"MTMaterialView")) return -1.0;
-    BOOL inModule = hasAncestorOfClassName(mat, @"CCUIContentModuleContainerView");
+    BOOL inModule = ccInModule(mat);
 
     if (ccIsInsideSlider(mat)) {
         if (!inModule && !LGMaterialHasGlass(mat, kGlassKey)) return -1.0;
@@ -155,6 +166,24 @@ static CGFloat ccGlassRadiusForMaterial(UIView *mat) {
     if (w > 100.0 && h < 100.0) return h * 0.5;
     if (h > 100.0 && w < 100.0) return w * 0.5;
     return ccPillRadius(mat);
+}
+
+static void *kCCMatLoggedKey = &kCCMatLoggedKey;
+
+static CGFloat ccGlassRadiusForMaterial(UIView *mat) {
+    CGFloat result = ccGlassRadiusForMaterialImpl(mat);
+    if (LGDebugLoggingEnabled() && mat && !objc_getAssociatedObject(mat, kCCMatLoggedKey)) {
+        objc_setAssociatedObject(mat, kCCMatLoggedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSMutableString *chain = [NSMutableString string];
+        int depth = 0;
+        for (UIView *a = mat.superview; a && depth < 12; a = a.superview, depth++) {
+            [chain appendFormat:@"%@%@", depth ? @" < " : @"", NSStringFromClass(a.class)];
+        }
+        LGLog(@"[CCMAT] result=%.1f inModule=%d elastic=%d insideSlider=%d size=%@ cornerRadius=%.1f chain=%@",
+              result, ccInModule(mat), ccHasSBElasticHierarchy(mat), ccIsInsideSlider(mat),
+              NSStringFromCGSize(mat.bounds.size), mat.layer.cornerRadius, chain);
+    }
+    return result;
 }
 
 #pragma mark - fullscreen backdrop styling
