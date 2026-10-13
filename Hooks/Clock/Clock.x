@@ -52,36 +52,6 @@ static BOOL LGClockEnabled(void) {
     return lgHostEnabled(@"Clock");
 }
 
-static dispatch_source_t sLGClockDiagTimer;
-
-static void LGClockDiagReason(NSString *reason) {
-    static NSString *lastReason;
-    if ([reason isEqualToString:lastReason]) return;
-    lastReason = [reason copy];
-    LGLog(@"[ClockDiag] update: %@", reason);
-}
-
-static void LGClockDiagDump(void) {
-    static NSString *lastLine;
-    NSArray<UIView *> *hosts = sLGClockHosts.allObjects;
-    NSMutableString *line = [NSMutableString stringWithFormat:@"hosts=%lu enabled=%d passcodeFlag=%d active=%@",
-        (unsigned long)hosts.count, LGClockEnabled(), sLGClockPasscodeVisible,
-        sLGClockActiveHost ? NSStringFromClass(sLGClockActiveHost.class) : @"nil"];
-    for (UIView *host in hosts) {
-        SpatialLiquidClockView *clock = objc_getAssociatedObject(host, kLGClockViewKey);
-        UIView *sv = clock.superview;
-        UILabel *src = objc_getAssociatedObject(host, kLGClockSourceLabelKey);
-        [line appendFormat:@" | host=%@ hostWin=%d clock=%d clockWin=%d hidden=%d alpha=%.2f op=%.2f sv=%@ svHidden=%d svAlpha=%.2f frame=%@ srcAlpha=%.2f",
-            NSStringFromClass(host.class), host.window != nil, clock != nil, clock.window != nil,
-            clock.hidden, clock.alpha, clock.layer.opacity,
-            sv ? NSStringFromClass(sv.class) : @"nil", sv.hidden, sv.alpha,
-            NSStringFromCGRect(clock.frame), src ? src.alpha : -1.0];
-    }
-    if ([line isEqualToString:lastLine]) return;
-    lastLine = [line copy];
-    LGLog(@"[ClockDiag] %@", line);
-}
-
 static BOOL LGClockLooksLikeTime(NSString *text) {
     if (text.length < 3 || text.length > 8) return NO;
     NSCharacterSet *digits = NSCharacterSet.decimalDigitCharacterSet;
@@ -214,23 +184,14 @@ static void LGClockApplyPreferences(SpatialLiquidClockView *clock) {
 
 static void LGClockUpdateHost(UIView *host) {
     if (!host.window || !LGClockEnabled()) {
-        LGClockDiagReason([NSString stringWithFormat:@"remove host=%@ window=%d enabled=%d",
-                           NSStringFromClass(host.class), host.window != nil, LGClockEnabled()]);
         LGClockRemove(host);
         return;
     }
     UILabel *source = LGClockSourceLabel(host);
-    if (!source) {
-        LGClockDiagReason([NSString stringWithFormat:@"no time label in host=%@", NSStringFromClass(host.class)]);
-        return;
-    }
+    if (!source) return;
     if (sLGClockActiveHost != host) {
         if (sLGClockActiveHost.window &&
-            LGClockHostPriority(sLGClockActiveHost) >= LGClockHostPriority(host)) {
-            LGClockDiagReason([NSString stringWithFormat:@"skip host=%@ (active=%@ has priority)",
-                               NSStringFromClass(host.class), NSStringFromClass(sLGClockActiveHost.class)]);
-            return;
-        }
+            LGClockHostPriority(sLGClockActiveHost) >= LGClockHostPriority(host)) return;
         LGClockRemove(sLGClockActiveHost);
         sLGClockActiveHost = host;
     }
@@ -548,19 +509,6 @@ static void LGClockRegisterObstacle(UIView *view) {
     if (!LGIsSpringBoardProcess()) return;
     sLGClockHosts = [NSHashTable weakObjectsHashTable];
     %init(LGClock26Hooks);
-    sLGClockDiagTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-    dispatch_source_set_timer(sLGClockDiagTimer, DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC, 100 * NSEC_PER_MSEC);
-    dispatch_source_set_event_handler(sLGClockDiagTimer, ^{
-        LGClockDiagDump();
-        // EXPERIMENT: keep the backdrop render alive (CA stops calling the filter once the clock is at rest)
-        static int sTick = 0;
-        if ((++sTick % 2) != 0 || !LG_prefBool(@"Clock.KeepAlive", YES)) return;
-        for (UIView *host in sLGClockHosts.allObjects) {
-            SpatialLiquidClockView *clock = objc_getAssociatedObject(host, kLGClockViewKey);
-            if (clock.window && !clock.hidden && clock.alpha > 0.01) [clock notifySettled];
-        }
-    });
-    dispatch_resume(sLGClockDiagTimer);
     lgObservePreferenceReload(^{
         for (UIView *host in sLGClockHosts.allObjects) LGClockUpdateHost(host);
     });
