@@ -2,6 +2,11 @@
 #import "SpatialLogging.h"
 #import <QuartzCore/QuartzCore.h>
 
+static CALayer *SpatialRootLayer(CALayer *layer) {
+    while (layer.superlayer) layer = layer.superlayer;
+    return layer;
+}
+
 static CGRect SpatialGetPresentationFrameInContainer(UIView *view, UIView *container) {
     if (!view || !container || !view.window) {
         return CGRectNull;
@@ -37,6 +42,26 @@ static CGRect SpatialGetPresentationFrameInContainer(UIView *view, UIView *conta
             rectInContainer = [container convertRect:view.bounds fromView:view];
         } @catch (NSException *e) {
             rectInContainer = CGRectNull;
+        }
+    }
+
+    // iPad fix: if the view lives in a different layer tree than the container (other window / hosted
+    // elsewhere), CALayer conversion just returns local numbers. Then trust UIKit's window-aware conversion.
+    if (SpatialRootLayer(view.layer) != SpatialRootLayer(container.layer)) {
+        CGRect uiRect = CGRectNull;
+        @try {
+            uiRect = [view convertRect:view.bounds toView:container];
+        } @catch (NSException *e) {
+            uiRect = CGRectNull;
+        }
+        static int sLogged = 0;
+        if (sLogged++ < 12) {
+            SpatialLog(@"[Tracker] different layer tree for %@: layerRect=%@ uiRect=%@ viewWindow=%@ containerWindow=%@",
+                       NSStringFromClass(view.class), NSStringFromCGRect(rectInContainer), NSStringFromCGRect(uiRect),
+                       NSStringFromClass(view.window.class), NSStringFromClass(container.window.class));
+        }
+        if (!CGRectIsNull(uiRect) && !CGRectIsEmpty(uiRect) && !isnan(uiRect.origin.y)) {
+            rectInContainer = uiRect;
         }
     }
     
@@ -303,6 +328,15 @@ static CGRect SpatialGetPresentationFrameInContainer(UIView *view, UIView *conta
     
     if (fabs(self.targetProgress - self.lastLoggedProgress) > 0.08 || (self.displayLink.isPaused && self.lastLoggedProgress >= 0.0)) {
         self.lastLoggedProgress = self.targetProgress;
+        if (nearestView) {
+            CGRect uiNear = CGRectNull;
+            @try { uiNear = [nearestView convertRect:nearestView.bounds toView:container]; } @catch (NSException *e) {}
+            SpatialLog(@"[Tracker] nearest detail: sameTree=%d uiRect=%@ viewWindow=%@ containerWindow=%@ super=%@ alpha=%.2f",
+                       SpatialRootLayer(nearestView.layer) == SpatialRootLayer(container.layer),
+                       NSStringFromCGRect(uiNear), NSStringFromClass(nearestView.window.class),
+                       NSStringFromClass(container.window.class),
+                       NSStringFromClass(nearestView.superview.class), nearestView.alpha);
+        }
         SpatialLog(@"[Tracker] nearestTop=%.1f nearestView=%@ frame=%@ baseTop=%.1f targetP=%.2f curP=%.2f targetTop=%.1f obstacles=%lu",
                    (nearestTop == CGFLOAT_MAX ? -1.0 : nearestTop), (nearestView ? NSStringFromClass(nearestView.class) : @"none"), NSStringFromCGRect(nearestFrame), baseClockTop, self.targetProgress, clock.compressionProgress, self.targetClockTop, (unsigned long)self.obstacleViews.count);
     }
