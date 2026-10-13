@@ -55,7 +55,7 @@ static CGRect SpatialGetPresentationFrameInContainer(UIView *view, UIView *conta
             uiRect = CGRectNull;
         }
         static int sLogged = 0;
-        if (sLogged++ < 12) {
+        if (sLogged++ < 3) {
             SpatialLog(@"[Tracker] different layer tree for %@: layerRect=%@ uiRect=%@ viewWindow=%@ containerWindow=%@",
                        NSStringFromClass(view.class), NSStringFromCGRect(rectInContainer), NSStringFromCGRect(uiRect),
                        NSStringFromClass(view.window.class), NSStringFromClass(container.window.class));
@@ -243,6 +243,14 @@ static CGRect SpatialGetPresentationFrameInContainer(UIView *view, UIView *conta
     }
 
     
+    // iPad: the notification list reports phantom obstacles at the top of the screen, which pushes the
+    // clock out of view. Keep the clock at full size and in place on iPad.
+    if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
+        nearestTop = CGFLOAT_MAX;
+        nearestView = nil;
+        nearestFrame = CGRectZero;
+    }
+
     CGFloat clockMinHeight = 65.0;     
     CGFloat targetTop = baseClockTop;
     CGFloat rawTargetProgress = 1.0;
