@@ -269,11 +269,19 @@ static BOOL LGSettingsChromeEnabledForView(UIView *view) {
     [super cancelTrackingWithEvent:event];
 }
 - (BOOL)lg_invokeView:(UIView *)view {
-    if ([view isKindOfClass:UIControl.class] && ((UIControl *)view).allTargets.count) {
-        [(UIControl *)view sendActionsForControlEvents:UIControlEventTouchUpInside];
+    if ([view isKindOfClass:UIControl.class]) {
+        UIControl *control = (UIControl *)view;
+        if (control.allTargets.count) {
+            [control sendActionsForControlEvents:UIControlEventTouchUpInside];
+            return YES;
+        }
+        // iOS 14+: back buttons use a UIAction as primary action instead of target/action
+        [control sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
         return YES;
     }
     for (UIGestureRecognizer *recognizer in view.gestureRecognizers) {
+        // only taps: long-press recognizers on the back button just open the history menu
+        if (![recognizer isKindOfClass:UITapGestureRecognizer.class]) continue;
         NSArray *targets = nil;
         @try { targets = [recognizer valueForKey:@"_targets"]; }
         @catch (__unused NSException *exception) {}
@@ -296,8 +304,23 @@ static BOOL LGSettingsChromeEnabledForView(UIView *view) {
     return NO;
 }
 - (void)lg_pop {
-    if (![self lg_invokeView:self.stockButton])
-        [self.navigationController popViewControllerAnimated:YES];
+    UINavigationController *nav = self.navigationController;
+    UIViewController *topBefore = nav.topViewController;
+    NSUInteger countBefore = nav.viewControllers.count;
+    BOOL invoked = [self lg_invokeView:self.stockButton];
+    if (!invoked) {
+        [nav popViewControllerAnimated:YES];
+        return;
+    }
+    // safety net: if the stock action did not navigate, pop manually
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (nav && nav.topViewController == topBefore &&
+            nav.viewControllers.count == countBefore && nav.viewControllers.count > 1 &&
+            !nav.transitionCoordinator) {
+            [nav popViewControllerAnimated:YES];
+        }
+    });
 }
 @end
 
