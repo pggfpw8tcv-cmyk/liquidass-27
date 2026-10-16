@@ -163,6 +163,16 @@ static CGFloat ccGlassRadiusForMaterialImpl(UIView *mat) {
 
     UIView *module = ccModuleAncestor(mat);
     if (module && ccIsModuleCandidate(module)) return fmin(ccModuleCornerRadius(module), ccPillRadius(mat));
+    // iPadOS 18: no known module ancestor. Use the real corner radius of the material or a nearby
+    // ancestor, otherwise square modules would become circles and tall ones huge capsules.
+    {
+        CGFloat limit = fmin(w, h) * 0.5;
+        UIView *v = mat;
+        for (int i = 0; v && i < 6; i++, v = v.superview) {
+            CGFloat cr = v.layer.cornerRadius;
+            if (cr > 1.0) return fmin(cr, limit);
+        }
+    }
     if (w > 100.0 && h < 100.0) return h * 0.5;
     if (h > 100.0 && w < 100.0) return w * 0.5;
     return ccPillRadius(mat);
